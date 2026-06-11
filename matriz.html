@@ -924,18 +924,22 @@ async function recargarDesdeSheets() {
 
   try {
     const url = `${scriptUrl}?year=${curYear}&month=${curMonth + 1}&q=${curQ}`;
+    console.log('[Sheets GET]', url);
     const res  = await fetch(url);
 
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const json = await res.json();
+    console.log('[Sheets respuesta]', json);
 
     if (json.status !== 'ok') {
       showToast(json.message || 'Error del servidor', true);
       return;
     }
 
-    if (!json.registros || !json.registros.length) {
-      showToast('No hay registros en Sheets para este período', true);
+    const total = json.registros ? json.registros.length : 0;
+
+    if (!total) {
+      showToast('Sheets no encontró datos para este período. Verifica que el script esté re-implementado.', true);
       return;
     }
 
@@ -944,19 +948,23 @@ async function recargarDesdeSheets() {
     if (localCount > 0) {
       if (!confirm(
         `Hay ${localCount} registro${localCount !== 1 ? 's' : ''} locales.\n` +
-        `¿Reemplazar con los ${json.registros.length} de Google Sheets?`
+        `¿Reemplazar con los ${total} de Google Sheets?`
       )) return;
     }
 
-    // Mapear nombre completo → empKey
+    // Mapear nombre completo → empKey (comparación sin espacios extra)
     const porNombre = {};
-    EMPLEADOS.forEach(e => { porNombre[e.nombre.toUpperCase()] = e.key; });
+    EMPLEADOS.forEach(e => { porNombre[e.nombre.trim().toUpperCase()] = e.key; });
 
     state = {};
     let cargados = 0;
+    const sinCoincidir = [];
+
     json.registros.forEach(r => {
-      const empKey = porNombre[(r.empleado || '').toUpperCase()];
-      if (!empKey || !r.fecha || !r.entrada) return;
+      const nombreSheet = (r.empleado || '').trim().toUpperCase();
+      const empKey = porNombre[nombreSheet];
+      if (!empKey) { sinCoincidir.push(r.empleado); return; }
+      if (!r.fecha) return;
       state[`${empKey}_${r.fecha}`] = {
         entrada:   r.entrada   || '',
         salida:    r.salida    || '',
@@ -968,13 +976,22 @@ async function recargarDesdeSheets() {
       cargados++;
     });
 
+    if (sinCoincidir.length) {
+      console.warn('[Sheets] Nombres no reconocidos:', [...new Set(sinCoincidir)]);
+    }
+
+    if (!cargados) {
+      showToast(`Sheets devolvió ${total} registros pero ningún nombre coincidió. Abre consola (F12) para ver detalles.`, true);
+      return;
+    }
+
     saveState();
     buildTable();
-    showToast(`${cargados} registros cargados desde Sheets ✓`);
+    showToast(`${cargados} registro${cargados !== 1 ? 's' : ''} cargado${cargados !== 1 ? 's' : ''} desde Sheets ✓`);
 
   } catch (err) {
     showToast('No se pudo conectar con Sheets', true);
-    console.error(err);
+    console.error('[Sheets error]', err);
   } finally {
     btn.classList.remove('loading');
     btn.textContent = '↻';

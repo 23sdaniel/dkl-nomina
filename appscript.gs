@@ -49,14 +49,24 @@ function getSheet() {
 
 function doPost(e) {
   try {
-    var data   = JSON.parse(e.postData.contents);
-    var sheet  = getSheet();
-
-    // Acepta tanto un registro individual como un array (envío de quincena)
+    var data      = JSON.parse(e.postData.contents);
+    var sheet     = getSheet();
     var registros = Array.isArray(data) ? data : [data];
 
+    // Leer hoja una sola vez y construir índice EMPLEADO_FECHA → fila (1-based)
+    var filas  = sheet.getDataRange().getValues();
+    var indice = {};
+    for (var i = 1; i < filas.length; i++) {
+      var fe = toFechaStr(filas[i][1]);
+      var em = (filas[i][2] || '').toString().trim().toUpperCase();
+      if (fe && em) indice[em + '_' + fe] = i + 1;
+    }
+
     registros.forEach(function(r) {
-      sheet.appendRow([
+      var key = (r.empleado || '').toString().trim().toUpperCase()
+                + '_' + (r.fecha || '').toString().trim();
+
+      var fila = [
         r.timestamp       || new Date().toLocaleString('es-MX'),
         r.fecha           || '',
         r.empleado        || '',
@@ -67,7 +77,16 @@ function doPost(e) {
         r.lonas           || 0,
         r.prestamos       || 0,
         r.novedades       || ''
-      ]);
+      ];
+
+      if (indice[key]) {
+        // Ya existe → sobreescribir esa fila
+        sheet.getRange(indice[key], 1, 1, fila.length).setValues([fila]);
+      } else {
+        // Nueva combinación empleado+fecha → agregar al final
+        sheet.appendRow(fila);
+        indice[key] = sheet.getLastRow(); // evita duplicados dentro del mismo envío
+      }
     });
 
     return ContentService
