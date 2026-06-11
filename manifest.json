@@ -1,0 +1,26 @@
+{
+  "name": "DKL Kids — Quincena",
+  "short_name": "DKL Nómina",
+  "description": "Captura de quincena para DKL Kids",
+  "start_url": "./matriz.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#1976D2",
+  "theme_color": "#1976D2",
+  "lang": "es",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
