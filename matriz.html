@@ -113,6 +113,38 @@
       flex-shrink: 0;
     }
 
+    /* ── BARRA DE RECUPERACIÓN ── */
+    .recovery-bar {
+      background: #FFFBEB;
+      border-bottom: 2px solid #F6C94D;
+      padding: 7px 14px;
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      position: relative; z-index: 1;
+      animation: slideDown 0.3s ease;
+    }
+    @keyframes slideDown {
+      from { transform: translateY(-8px); opacity: 0; }
+      to   { transform: translateY(0);    opacity: 1; }
+    }
+    .recovery-info {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 0.73rem; color: #92600A; flex: 1; line-height: 1.35;
+    }
+    .recovery-icon { font-size: 1rem; flex-shrink: 0; }
+    .recovery-acts { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+    .btn-rec-reload {
+      padding: 5px 12px;
+      background: var(--primary); color: white;
+      border: none; border-radius: 6px;
+      font-size: 0.76rem; font-weight: 700; cursor: pointer;
+    }
+    .btn-rec-dismiss {
+      padding: 5px 8px;
+      background: transparent; color: #92600A;
+      border: 1.5px solid #D4A017; border-radius: 6px;
+      font-size: 0.76rem; cursor: pointer; line-height: 1;
+    }
+
     /* ── SELECTOR BAR ── */
     .selector-bar {
       background: white;
@@ -421,6 +453,18 @@
   </select>
 </div>
 
+<!-- Barra de recuperación (se muestra tras un envío accidental) -->
+<div class="recovery-bar" id="recoveryBar" style="display:none;">
+  <div class="recovery-info">
+    <span class="recovery-icon">↩</span>
+    <span id="recoveryMsg"></span>
+  </div>
+  <div class="recovery-acts">
+    <button class="btn-rec-reload" onclick="recargarDatos()">Recargar</button>
+    <button class="btn-rec-dismiss" onclick="descartarBackup()">✕</button>
+  </div>
+</div>
+
 <div class="matrix-wrap">
   <table class="matrix-table" id="matrizTable"></table>
 </div>
@@ -553,6 +597,53 @@ let curYear, curMonth, curQ;
 let state = {};
 let editKey = null;
 
+/* ── Respaldo para recuperación tras envío ── */
+function backupStateKey() {
+  return `mstate_bak_${curYear}_${String(curMonth+1).padStart(2,'0')}_Q${curQ}`;
+}
+
+function saveBackup(count) {
+  const hora = new Date().toLocaleTimeString('es-MX', {hour:'2-digit', minute:'2-digit'});
+  localStorage.setItem(backupStateKey(), JSON.stringify({ data: state, hora, count }));
+}
+
+function checkRecovery() {
+  const raw = localStorage.getItem(backupStateKey());
+  const bar = document.getElementById('recoveryBar');
+  const currentCount = Object.values(state).filter(e => e?.entrada).length;
+  if (raw && currentCount === 0) {
+    try {
+      const bak = JSON.parse(raw);
+      document.getElementById('recoveryMsg').textContent =
+        `Se enviaron ${bak.count} registros a las ${bak.hora} — ¿fue por error?`;
+      bar.style.display = 'flex';
+      return;
+    } catch { /* ignorar */ }
+  }
+  bar.style.display = 'none';
+}
+
+function recargarDatos() {
+  const raw = localStorage.getItem(backupStateKey());
+  if (!raw) return;
+  try {
+    const bak = JSON.parse(raw);
+    state = bak.data;
+    saveState();
+    localStorage.removeItem(backupStateKey());
+    document.getElementById('recoveryBar').style.display = 'none';
+    buildTable();
+    showToast(`${bak.count} registros recuperados ✓`);
+  } catch {
+    showToast('No se pudo recuperar', true);
+  }
+}
+
+function descartarBackup() {
+  localStorage.removeItem(backupStateKey());
+  document.getElementById('recoveryBar').style.display = 'none';
+}
+
 /* ── Estado persistente ── */
 function storageStateKey() {
   return `${STATE_PREFIX}${curYear}_${String(curMonth+1).padStart(2,'0')}_Q${curQ}`;
@@ -673,6 +764,7 @@ function buildTable() {
       tr.appendChild(td);
     });
   });
+  checkRecovery();
 }
 
 /* ── Sheet turno ── */
@@ -844,6 +936,7 @@ async function enviarQuincena() {
       body:    JSON.stringify(registros),
     });
     showToast(`${registros.length} registros enviados ✓`);
+    saveBackup(registros.length);
     localStorage.removeItem(storageStateKey());
     state = {};
     buildTable();
