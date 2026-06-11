@@ -176,6 +176,36 @@ function jsonOut(obj) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
+// ── Limpia duplicados ya existentes en la hoja (ejecutar una sola vez) ───────
+//  Conserva la ÚLTIMA fila de cada combinación empleado+fecha y borra las demás.
+//  Ejecuta desde el editor de Apps Script: selecciona "deduplicar" y clic Ejecutar.
+function deduplicar() {
+  var sheet = getSheet();
+  var filas = sheet.getDataRange().getValues();
+  var visto = {};       // clave → índice de la fila más reciente (1-based)
+  var aBorrar = [];
+
+  for (var i = 1; i < filas.length; i++) {
+    var fe  = toFechaStr(filas[i][1]);
+    var em  = (filas[i][2] || '').toString().trim().toUpperCase();
+    var key = em + '_' + fe;
+    if (!key || key === '_') continue;
+
+    if (visto[key] !== undefined) {
+      aBorrar.push(visto[key]); // la anterior se borra
+    }
+    visto[key] = i + 1; // fila más reciente gana (1-based)
+  }
+
+  // Borrar de abajo hacia arriba para no alterar los índices
+  aBorrar.sort(function(a,b){ return b - a; });
+  aBorrar.forEach(function(rowNum) {
+    sheet.deleteRow(rowNum);
+  });
+
+  Logger.log('Duplicados eliminados: ' + aBorrar.length);
+}
+
 // ── Diagnóstico: muestra en Logger qué fechas ve el script en la hoja ────────
 //  1. Abre el editor de Apps Script
 //  2. Cambia los valores de year/month/q al período que quieres probar
