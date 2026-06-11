@@ -138,10 +138,14 @@ function doGet(e) {
 }
 
 // Convierte un valor de celda (Date u objeto) a 'YYYY-MM-DD'
+// Usa UTC para evitar que el huso horario desplace el día al leer desde Sheets
 function toFechaStr(val) {
   if (!val) return '';
   if (val instanceof Date) {
-    return Utilities.formatDate(val, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    var y = val.getUTCFullYear();
+    var m = String(val.getUTCMonth() + 1).padStart(2, '0');
+    var d = String(val.getUTCDate()).padStart(2, '0');
+    return y + '-' + m + '-' + d;
   }
   return val.toString().split('T')[0].trim();
 }
@@ -151,6 +155,17 @@ function jsonOut(obj) {
   return ContentService
     .createTextOutput(JSON.stringify(obj))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+// ── Diagnóstico: muestra en Logger qué fechas ve el script en la hoja ────────
+//  1. Abre el editor de Apps Script
+//  2. Cambia los valores de year/month/q al período que quieres probar
+//  3. Selecciona "testDoGet" en el menú desplegable de funciones y clic Ejecutar
+//  4. Ve a "Registros de ejecución" para ver el resultado
+function testDoGet() {
+  var e = { parameter: { year: '2026', month: '6', q: '1' } };
+  var result = doGet(e);
+  Logger.log(result.getContent());
 }
 
 // ── Función de prueba (ejecutar manualmente desde el editor) ─────────────────
