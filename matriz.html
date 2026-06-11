@@ -163,6 +163,21 @@
     }
     #selQ { max-width: 110px; flex: 0 0 auto; }
 
+    /* Botón recargar desde Sheets */
+    .btn-from-sheets {
+      width: 36px; height: 36px; flex-shrink: 0;
+      border: 1.5px solid var(--border); border-radius: 7px;
+      background: white; color: var(--muted);
+      font-size: 17px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.15s;
+    }
+    .btn-from-sheets:active { background: #EBF4FF; color: var(--primary); border-color: var(--primary); }
+    .btn-from-sheets.loading {
+      color: var(--primary); border-color: var(--primary);
+      animation: spin 0.8s linear infinite;
+    }
+
     /* ── MATRIX ── */
     .matrix-wrap {
       overflow-x: auto;
@@ -451,6 +466,9 @@
     <option value="1">Q1 · 1–15</option>
     <option value="2">Q2 · 16–fin</option>
   </select>
+  <button class="btn-from-sheets" id="btnFromSheets"
+          onclick="recargarDesdeSheets()"
+          title="Cargar registros desde Google Sheets">&#8635;</button>
 </div>
 
 <!-- Barra de recuperación (se muestra tras un envío accidental) -->
@@ -889,6 +907,77 @@ function confirmarLimpiar() {
     closeAll();
     buildTable();
     showToast('Quincena limpiada');
+  }
+}
+
+/* ── Cargar desde Google Sheets ── */
+async function recargarDesdeSheets() {
+  const scriptUrl = localStorage.getItem(SCRIPT_URL_KEY) || '';
+  if (!scriptUrl) {
+    showToast('Configura la URL primero (☰)', true);
+    return;
+  }
+
+  const btn = document.getElementById('btnFromSheets');
+  btn.classList.add('loading');
+  btn.textContent = '';
+
+  try {
+    const url = `${scriptUrl}?year=${curYear}&month=${curMonth + 1}&q=${curQ}`;
+    const res  = await fetch(url);
+
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+
+    if (json.status !== 'ok') {
+      showToast(json.message || 'Error del servidor', true);
+      return;
+    }
+
+    if (!json.registros || !json.registros.length) {
+      showToast('No hay registros en Sheets para este período', true);
+      return;
+    }
+
+    // Si ya hay datos locales, pedir confirmación
+    const localCount = Object.values(state).filter(e => e?.entrada).length;
+    if (localCount > 0) {
+      if (!confirm(
+        `Hay ${localCount} registro${localCount !== 1 ? 's' : ''} locales.\n` +
+        `¿Reemplazar con los ${json.registros.length} de Google Sheets?`
+      )) return;
+    }
+
+    // Mapear nombre completo → empKey
+    const porNombre = {};
+    EMPLEADOS.forEach(e => { porNombre[e.nombre.toUpperCase()] = e.key; });
+
+    state = {};
+    let cargados = 0;
+    json.registros.forEach(r => {
+      const empKey = porNombre[(r.empleado || '').toUpperCase()];
+      if (!empKey || !r.fecha || !r.entrada) return;
+      state[`${empKey}_${r.fecha}`] = {
+        entrada:   r.entrada   || '',
+        salida:    r.salida    || '',
+        lugar:     r.lugar     || '',
+        lonas:     Number(r.lonas)     || 0,
+        prestamos: Number(r.prestamos) || 0,
+        novedades: r.novedades || '',
+      };
+      cargados++;
+    });
+
+    saveState();
+    buildTable();
+    showToast(`${cargados} registros cargados desde Sheets ✓`);
+
+  } catch (err) {
+    showToast('No se pudo conectar con Sheets', true);
+    console.error(err);
+  } finally {
+    btn.classList.remove('loading');
+    btn.textContent = '↻';
   }
 }
 

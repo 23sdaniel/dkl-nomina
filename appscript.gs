@@ -81,7 +81,79 @@ function doPost(e) {
   }
 }
 
-// Función de prueba (ejecutar manualmente desde el editor)
+// ── Lee registros filtrados por año / mes / quincena ────────────────────────
+//  GET ?year=2026&month=6&q=1
+//  Devuelve: { status:'ok', registros:[{fecha, empleado, lugar, entrada, ...}] }
+//  Si hay duplicados (mismo empleado+fecha), gana el registro más reciente.
+function doGet(e) {
+  try {
+    var p     = e.parameter;
+    var year  = parseInt(p.year  || 0);
+    var month = parseInt(p.month || 0);
+    var q     = parseInt(p.q     || 0);
+
+    if (!year || !month || !q) {
+      return jsonOut({ status: 'error', message: 'Parámetros requeridos: year, month, q' });
+    }
+
+    var startDay = (q === 1) ? 1  : 16;
+    var endDay   = (q === 1) ? 15 : new Date(year, month, 0).getDate();
+
+    var rows  = getSheet().getDataRange().getValues();
+    var mapa  = {};   // empleado_fecha → registro (última escritura gana)
+
+    for (var i = 1; i < rows.length; i++) {
+      var row   = rows[i];
+      var fecha = toFechaStr(row[1]);
+      if (!fecha) continue;
+
+      var parts = fecha.split('-');
+      if (parts.length !== 3) continue;
+      var rowY = parseInt(parts[0]);
+      var rowM = parseInt(parts[1]);
+      var rowD = parseInt(parts[2]);
+
+      if (rowY !== year || rowM !== month || rowD < startDay || rowD > endDay) continue;
+
+      var emp = (row[2] || '').toString().trim();
+      if (!emp) continue;
+
+      mapa[emp + '_' + fecha] = {
+        fecha:     fecha,
+        empleado:  emp,
+        lugar:     (row[3] || '').toString(),
+        entrada:   (row[4] || '').toString(),
+        salida:    (row[5] || '').toString(),
+        lonas:     Number(row[7]) || 0,
+        prestamos: Number(row[8]) || 0,
+        novedades: (row[9] || '').toString()
+      };
+    }
+
+    return jsonOut({ status: 'ok', registros: Object.values(mapa) });
+
+  } catch (err) {
+    return jsonOut({ status: 'error', message: err.toString() });
+  }
+}
+
+// Convierte un valor de celda (Date u objeto) a 'YYYY-MM-DD'
+function toFechaStr(val) {
+  if (!val) return '';
+  if (val instanceof Date) {
+    return Utilities.formatDate(val, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  }
+  return val.toString().split('T')[0].trim();
+}
+
+// Helper para respuestas JSON
+function jsonOut(obj) {
+  return ContentService
+    .createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+// ── Función de prueba (ejecutar manualmente desde el editor) ─────────────────
 function testInsert() {
   var sheet = getSheet();
   sheet.appendRow([
