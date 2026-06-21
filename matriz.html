@@ -231,12 +231,31 @@
     .day-cell.sunday  { background: #F8F8F8 !important; }
     .day-cell.filled  { background: #E8F5E9 !important; }
     .day-cell.filled.sunday { background: #F1F8E9 !important; }
+    .day-cell.desc  { background: #FFF9C4 !important; }
+    .day-cell.ause  { background: #FFEBEE !important; }
 
     .plus  { color: #CBD5E0; font-size: 18px; line-height: 1; }
     .c-hrs { font-size: 10px; font-weight: 700; color: #2E7D32; line-height: 1.3; }
     .c-tim { font-size: 8px; color: #666; line-height: 1.4; }
     .c-lon { font-size: 8px; background: #FF8F00; color: white;
               border-radius: 3px; padding: 1px 2px; margin-top: 1px; display: inline-block; }
+    .c-desc { font-size: 8px; background: #F9A825; color: white;
+               border-radius: 3px; padding: 1px 2px; display: inline-block; }
+    .c-ause { font-size: 8px; background: #E53935; color: white;
+               border-radius: 3px; padding: 1px 2px; display: inline-block; }
+
+    /* ── toggles Descanso / Ausencia ── */
+    .toggle-btn {
+      width: 100%; min-height: 42px;
+      border: 1.5px solid var(--border); border-radius: 7px;
+      background: white; font-size: 14px; font-weight: 600;
+      color: var(--muted); cursor: pointer; transition: all 0.15s;
+    }
+    .toggle-btn.on-desc { background: #FFF9C4; border-color: #F9A825; color: #E65100; }
+    .toggle-btn.on-ause { background: #FFEBEE; border-color: #E53935; color: #B71C1C; }
+    .fields-horas.disabled input, .fields-horas.disabled select {
+      opacity: 0.35; pointer-events: none;
+    }
 
     .day-num  { font-size: 11px; font-weight: 700; }
     .day-name { font-size: 8px; opacity: 0.8; }
@@ -497,24 +516,40 @@
     <div class="sheet-sub"   id="sheetSub"></div>
   </div>
   <div class="sheet-body">
+    <!-- Descanso / Ausencia -->
     <div class="sheet-row">
       <div class="field">
-        <label>Hora Entrada</label>
-        <input type="time" id="shEntrada" oninput="calcSheetHoras()" />
+        <label>Descanso</label>
+        <button type="button" class="toggle-btn" id="shDescanso"
+                onclick="toggleDesAus('shDescanso')">No</button>
       </div>
       <div class="field">
-        <label>Hora Salida</label>
-        <input type="time" id="shSalida" oninput="calcSheetHoras()" />
+        <label>Ausencia</label>
+        <button type="button" class="toggle-btn" id="shAusencia"
+                onclick="toggleDesAus('shAusencia')">No</button>
       </div>
     </div>
-    <div class="hours-display" id="shHorasDisplay"></div>
-    <div class="field">
-      <label>Lugar</label>
-      <select id="shLugar">
-        <option value="">-- Seleccionar --</option>
-        <option value="Taller">Taller</option>
-        <option value="Centro">Centro</option>
-      </select>
+    <!-- Horas (se deshabilitan cuando Descanso o Ausencia = Si) -->
+    <div class="fields-horas" id="fieldsHoras">
+      <div class="sheet-row">
+        <div class="field">
+          <label>Hora Entrada</label>
+          <input type="time" id="shEntrada" oninput="calcSheetHoras()" />
+        </div>
+        <div class="field">
+          <label>Hora Salida</label>
+          <input type="time" id="shSalida" oninput="calcSheetHoras()" />
+        </div>
+      </div>
+      <div class="hours-display" id="shHorasDisplay"></div>
+      <div class="field">
+        <label>Lugar</label>
+        <select id="shLugar">
+          <option value="">-- Seleccionar --</option>
+          <option value="Taller">Taller</option>
+          <option value="Centro">Centro</option>
+        </select>
+      </div>
     </div>
     <div class="sheet-row">
       <div class="field">
@@ -594,8 +629,13 @@ const LOGO = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0Z
 document.querySelectorAll('.logo-img').forEach(img => img.src = LOGO);
 
 /* ── Constantes ── */
-const SCRIPT_URL_KEY = 'turnos_script_url';
-const STATE_PREFIX   = 'mstate_';
+const SCRIPT_URL_KEY  = 'turnos_script_url';
+const STATE_PREFIX    = 'mstate_';
+const DEFAULT_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzKxABwWE0ZH6p4AcabGMsTg5ZQunx-JkG4Y1HRkjIA2v40-fHGwkoH87kJkvYCjzQrcA/exec';
+
+function _scriptUrl() {
+  return localStorage.getItem(SCRIPT_URL_KEY) || DEFAULT_SCRIPT_URL;
+}
 
 const EMPLEADOS = [
   { key:'MARICELA', nombre:'MARICELA PERALTA AREIZA',          short:'Maricela'  },
@@ -689,7 +729,7 @@ function initMes() {
   sel.addEventListener('change', () => {
     const [y, m] = sel.value.split('-').map(Number);
     curYear = y; curMonth = m;
-    loadState(); buildTable();
+    recargarDesdeSheets(true);
   });
 
   const selQ = document.getElementById('selQ');
@@ -699,11 +739,10 @@ function initMes() {
   selQ.value = String(curQ);
   selQ.addEventListener('change', () => {
     curQ = parseInt(selQ.value);
-    loadState(); buildTable();
+    recargarDesdeSheets(true);
   });
 
-  loadState();
-  buildTable();
+  recargarDesdeSheets(true);
   refreshMenuDot();
 }
 
@@ -768,7 +807,15 @@ function buildTable() {
       const key   = stateKey(emp.key, d);
       const entry = state[key];
 
-      if (entry?.entrada) {
+      if (entry?.descanso === 'Si') {
+        td.classList.add('desc');
+        td.innerHTML = '<div class="c-desc">DESCANSO</div>' +
+          (entry.lonas > 0 ? `<div class="c-lon">+${entry.lonas}L</div>` : '');
+      } else if (entry?.ausencia === 'Si') {
+        td.classList.add('ause');
+        td.innerHTML = '<div class="c-ause">AUSENCIA</div>' +
+          (entry.lonas > 0 ? `<div class="c-lon">+${entry.lonas}L</div>` : '');
+      } else if (entry?.entrada) {
         td.classList.add('filled');
         const horas = calcHoras(entry.entrada, entry.salida);
         td.innerHTML =
@@ -808,6 +855,11 @@ function openSheet(emp, day) {
       ? '$ ' + e.prestamos.toLocaleString('es-MX', {minimumFractionDigits:2})
       : '';
 
+  // Restaurar toggles Descanso / Ausencia
+  _setToggle('shDescanso', e.descanso === 'Si');
+  _setToggle('shAusencia', e.ausencia === 'Si');
+  _updateHorasDisabled();
+
   calcSheetHoras();
   document.getElementById('overlay').classList.add('show');
   document.getElementById('sheet').classList.add('show');
@@ -828,17 +880,25 @@ function calcSheetHoras() {
 }
 
 function saveCell() {
-  const entrada = document.getElementById('shEntrada').value;
-  if (!entrada) { showToast('Ingresa la hora de entrada', true); return; }
+  const descanso = document.getElementById('shDescanso').classList.contains('on-desc') ? 'Si' : '';
+  const ausencia = document.getElementById('shAusencia').classList.contains('on-ause') ? 'Si' : '';
+  const entrada  = document.getElementById('shEntrada').value;
+
+  if (!descanso && !ausencia && !entrada) {
+    showToast('Ingresa la hora de entrada, o marca Descanso / Ausencia', true);
+    return;
+  }
 
   const prestRaw = parseFloat(
     document.getElementById('shPrestamos').value.replace(/[^0-9.]/g,'')
   ) || 0;
 
   state[editKey] = {
-    entrada,
-    salida:     document.getElementById('shSalida').value,
-    lugar:      document.getElementById('shLugar').value,
+    descanso,
+    ausencia,
+    entrada:    descanso || ausencia ? '' : entrada,
+    salida:     descanso || ausencia ? '' : document.getElementById('shSalida').value,
+    lugar:      descanso || ausencia ? '' : document.getElementById('shLugar').value,
     lonas:      parseInt(document.getElementById('shLonas').value) || 0,
     prestamos:  prestRaw,
     novedades:  document.getElementById('shNovedades').value.trim(),
@@ -858,7 +918,7 @@ function clearCell() {
 
 /* ── Menú lateral ── */
 function openMenu() {
-  document.getElementById('cfgUrl').value = localStorage.getItem(SCRIPT_URL_KEY) || '';
+  document.getElementById('cfgUrl').value = _scriptUrl();
   refreshMenuStatus();
   document.getElementById('overlay').classList.add('show');
   document.getElementById('menuPanel').classList.add('show');
@@ -875,7 +935,7 @@ function saveSettings() {
 }
 
 function refreshMenuStatus() {
-  const url = localStorage.getItem(SCRIPT_URL_KEY) || '';
+  const url = _scriptUrl();
   const dot = document.getElementById('menuDot');
   const txt = document.getElementById('menuStatusTxt');
   if (url.includes('script.google.com')) {
@@ -911,10 +971,13 @@ function confirmarLimpiar() {
 }
 
 /* ── Cargar desde Google Sheets ── */
-async function recargarDesdeSheets() {
-  const scriptUrl = localStorage.getItem(SCRIPT_URL_KEY) || '';
+// silencioso=true: carga automática al abrir/cambiar período (sin diálogos de confirmación)
+// silencioso=false: carga manual con el botón ↻ (muestra toasts informativos)
+async function recargarDesdeSheets(silencioso = false) {
+  const scriptUrl = _scriptUrl();
   if (!scriptUrl) {
-    showToast('Configura la URL primero (☰)', true);
+    if (!silencioso) showToast('Configura la URL primero (☰)', true);
+    else { loadState(); buildTable(); }
     return;
   }
 
@@ -932,27 +995,22 @@ async function recargarDesdeSheets() {
     console.log('[Sheets respuesta]', json);
 
     if (json.status !== 'ok') {
-      showToast(json.message || 'Error del servidor', true);
+      if (!silencioso) showToast(json.message || 'Error del servidor', true);
+      else { loadState(); buildTable(); }
       return;
     }
 
     const total = json.registros ? json.registros.length : 0;
 
     if (!total) {
-      showToast('Sheets no encontró datos para este período. Verifica que el script esté re-implementado.', true);
+      // Período sin registros en Sheets → tabla vacía
+      state = {};
+      buildTable();
+      if (!silencioso) showToast('No hay registros en Sheets para este período', true);
       return;
     }
 
-    // Si ya hay datos locales, pedir confirmación
-    const localCount = Object.values(state).filter(e => e?.entrada).length;
-    if (localCount > 0) {
-      if (!confirm(
-        `Hay ${localCount} registro${localCount !== 1 ? 's' : ''} locales.\n` +
-        `¿Reemplazar con los ${total} de Google Sheets?`
-      )) return;
-    }
-
-    // Mapear nombre completo → empKey (comparación sin espacios extra)
+    // Mapear nombre completo → empKey
     const porNombre = {};
     EMPLEADOS.forEach(e => { porNombre[e.nombre.trim().toUpperCase()] = e.key; });
 
@@ -966,6 +1024,8 @@ async function recargarDesdeSheets() {
       if (!empKey) { sinCoincidir.push(r.empleado); return; }
       if (!r.fecha) return;
       state[`${empKey}_${r.fecha}`] = {
+        descanso:  r.descanso  || '',
+        ausencia:  r.ausencia  || '',
         entrada:   r.entrada   || '',
         salida:    r.salida    || '',
         lugar:     r.lugar     || '',
@@ -981,17 +1041,19 @@ async function recargarDesdeSheets() {
     }
 
     if (!cargados) {
-      showToast(`Sheets devolvió ${total} registros pero ningún nombre coincidió. Abre consola (F12) para ver detalles.`, true);
+      if (!silencioso) showToast(`Sheets devolvió ${total} registros pero ningún nombre coincidió. Abre consola (F12).`, true);
+      else { loadState(); buildTable(); }
       return;
     }
 
     saveState();
     buildTable();
-    showToast(`${cargados} registro${cargados !== 1 ? 's' : ''} cargado${cargados !== 1 ? 's' : ''} desde Sheets ✓`);
+    if (!silencioso) showToast(`${cargados} registro${cargados !== 1 ? 's' : ''} cargado${cargados !== 1 ? 's' : ''} desde Sheets ✓`);
 
   } catch (err) {
-    showToast('No se pudo conectar con Sheets', true);
     console.error('[Sheets error]', err);
+    if (!silencioso) showToast('No se pudo conectar con Sheets', true);
+    else { loadState(); buildTable(); } // fallback a localStorage si no hay conexión
   } finally {
     btn.classList.remove('loading');
     btn.textContent = '↻';
@@ -1000,14 +1062,14 @@ async function recargarDesdeSheets() {
 
 /* ── Enviar ── */
 async function enviarQuincena() {
-  const scriptUrl = localStorage.getItem(SCRIPT_URL_KEY) || '';
+  const scriptUrl = _scriptUrl();
   if (!scriptUrl) {
     showToast('Configura la URL primero (☰)', true);
     return;
   }
 
   const registros = Object.entries(state)
-    .filter(([, e]) => e?.entrada)
+    .filter(([, e]) => e?.entrada || e?.descanso === 'Si' || e?.ausencia === 'Si')
     .map(([key, e]) => {
       const [empKey, fecha] = key.split(/_(.+)/);
       const emp = EMPLEADOS.find(x => x.key === empKey);
@@ -1016,12 +1078,14 @@ async function enviarQuincena() {
         fecha,
         empleado:        emp?.nombre || empKey,
         area:            e.lugar || '',
-        entrada:         e.entrada,
-        salida:          e.salida || '',
+        entrada:         e.entrada || '',
+        salida:          e.salida  || '',
         horasTrabajadas: calcHoras(e.entrada, e.salida),
-        lonas:           e.lonas,
-        prestamos:       e.prestamos,
-        novedades:       e.novedades,
+        lonas:           e.lonas    || 0,
+        prestamos:       e.prestamos || 0,
+        novedades:       e.novedades || '',
+        descanso:        e.descanso  || '',
+        ausencia:        e.ausencia  || '',
       };
     });
 
@@ -1044,14 +1108,43 @@ async function enviarQuincena() {
     showToast(`${registros.length} registros enviados ✓`);
     saveBackup(registros.length);
     localStorage.removeItem(storageStateKey());
-    state = {};
-    buildTable();
+    await recargarDesdeSheets(true);
   } catch {
     showToast('Error al enviar. Revisa tu conexión.', true);
   } finally {
     btn.disabled = false;
     btn.textContent = 'Enviar';
   }
+}
+
+/* ── Toggles Descanso / Ausencia ── */
+function _setToggle(id, on) {
+  const btn = document.getElementById(id);
+  if (id === 'shDescanso') {
+    btn.textContent = on ? 'Sí ✓' : 'No';
+    btn.classList.toggle('on-desc', on);
+  } else {
+    btn.textContent = on ? 'Sí ✓' : 'No';
+    btn.classList.toggle('on-ause', on);
+  }
+}
+
+function _updateHorasDisabled() {
+  const desc = document.getElementById('shDescanso').classList.contains('on-desc');
+  const ause = document.getElementById('shAusencia').classList.contains('on-ause');
+  document.getElementById('fieldsHoras').classList.toggle('disabled', desc || ause);
+}
+
+function toggleDesAus(id) {
+  const isDesc = (id === 'shDescanso');
+  const otherId = isDesc ? 'shAusencia' : 'shDescanso';
+  const btn = document.getElementById(id);
+  const isOn = isDesc ? btn.classList.contains('on-desc') : btn.classList.contains('on-ause');
+
+  // Apagar el otro si estaba activo (no pueden ser ambos Si)
+  _setToggle(otherId, false);
+  _setToggle(id, !isOn);
+  _updateHorasDisabled();
 }
 
 /* ── Toast ── */

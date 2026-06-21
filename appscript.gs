@@ -20,14 +20,16 @@ var SHEET_ID = '1OpweQoePlFN_5lISoFja3FWGc35iHv9aGvr6etYdrpM';
 var HEADERS = [
   'Timestamp',
   'Fecha',
-  'Empleado',
+  'Nombre',
   'Lugar',
-  'Hora Entrada',
+  'Hora Ingreso',
   'Hora Salida',
   'Horas Trabajadas',
   'Lonas',
-  'Préstamos',
-  'Novedades'
+  'Prestamo',
+  'Novedades',
+  'Descanso',
+  'Ausencia'
 ];
 
 function getSheet() {
@@ -76,7 +78,9 @@ function doPost(e) {
         r.horasTrabajadas || '',
         r.lonas           || 0,
         r.prestamos       || 0,
-        r.novedades       || ''
+        r.novedades       || '',
+        r.descanso        || '',
+        r.ausencia        || ''
       ];
 
       if (indice[key]) {
@@ -120,10 +124,23 @@ function doGet(e) {
 
     var rows  = getSheet().getDataRange().getValues();
     var mapa  = {};   // empleado_fecha → registro (última escritura gana)
+    var debugRows = []; // solo se usa cuando ?debug=1
 
     for (var i = 1; i < rows.length; i++) {
       var row   = rows[i];
       var fecha = toFechaStr(row[1]);
+
+      // Modo diagnóstico: captura los primeros 5 datos crudos
+      if (p.debug === '1' && i <= 5) {
+        debugRows.push({
+          fila:       i + 1,
+          raw:        String(rows[i][1]),
+          esDate:     rows[i][1] instanceof Date,
+          fechaParsed: fecha,
+          empleado:   String(rows[i][2])
+        });
+      }
+
       if (!fecha) continue;
 
       var parts = fecha.split('-');
@@ -140,33 +157,47 @@ function doGet(e) {
       mapa[emp + '_' + fecha] = {
         fecha:     fecha,
         empleado:  emp,
-        lugar:     (row[3] || '').toString(),
-        entrada:   (row[4] || '').toString(),
-        salida:    (row[5] || '').toString(),
+        lugar:     (row[3]  || '').toString(),
+        entrada:   toTimeStr(row[4]),
+        salida:    toTimeStr(row[5]),
         lonas:     Number(row[7]) || 0,
         prestamos: Number(row[8]) || 0,
-        novedades: (row[9] || '').toString()
+        novedades: (row[9]  || '').toString(),
+        descanso:  (row[10] || '').toString(),
+        ausencia:  (row[11] || '').toString()
       };
     }
 
-    return jsonOut({ status: 'ok', registros: Object.values(mapa) });
+    var resultado = { status: 'ok', registros: Object.values(mapa) };
+    if (p.debug === '1') {
+      resultado.debug = { params: {year:year,month:month,q:q,startDay:startDay,endDay:endDay}, filas: debugRows };
+    }
+    return jsonOut(resultado);
 
   } catch (err) {
     return jsonOut({ status: 'error', message: err.toString() });
   }
 }
 
-// Convierte un valor de celda (Date u objeto) a 'YYYY-MM-DD'
-// Usa UTC para evitar que el huso horario desplace el día al leer desde Sheets
+// Convierte un valor de celda de Sheets a 'YYYY-MM-DD'
 function toFechaStr(val) {
   if (!val) return '';
-  if (val instanceof Date) {
-    var y = val.getUTCFullYear();
-    var m = String(val.getUTCMonth() + 1).padStart(2, '0');
-    var d = String(val.getUTCDate()).padStart(2, '0');
-    return y + '-' + m + '-' + d;
+  if (typeof val === 'object' && typeof val.getFullYear === 'function') {
+    var tz = SpreadsheetApp.openById(SHEET_ID).getSpreadsheetTimeZone();
+    return Utilities.formatDate(val, tz, 'yyyy-MM-dd');
   }
-  return val.toString().split('T')[0].trim();
+  return String(val).trim().substring(0, 10);
+}
+
+// Convierte un valor de celda de Sheets a 'HH:mm'
+// Las horas se guardan como objetos Date (base 30-dic-1899) en Google Sheets
+function toTimeStr(val) {
+  if (!val) return '';
+  if (typeof val === 'object' && typeof val.getHours === 'function') {
+    var tz = SpreadsheetApp.openById(SHEET_ID).getSpreadsheetTimeZone();
+    return Utilities.formatDate(val, tz, 'HH:mm');
+  }
+  return String(val).trim();
 }
 
 // Helper para respuestas JSON
@@ -212,9 +243,31 @@ function deduplicar() {
 //  3. Selecciona "testDoGet" en el menú desplegable de funciones y clic Ejecutar
 //  4. Ve a "Registros de ejecución" para ver el resultado
 function testDoGet() {
-  var e = { parameter: { year: '2026', month: '6', q: '1' } };
-  var result = doGet(e);
-  Logger.log(result.getContent());
+  var sheet = getSheet();
+  var rows  = sheet.getDataRange().getValues();
+  Logger.log('Total filas (encabezado incluido): ' + rows.length);
+
+  var year = 2026, month = 6, startDay = 1, endDay = 15;
+
+  for (var i = 1; i <= Math.min(rows.length - 1, 6); i++) {
+    var r     = rows[i];
+    var fecha = toFechaStr(r[1]);
+    var parts = fecha ? fecha.split('-') : [];
+    var rowY  = parseInt(parts[0] || 0);
+    var rowM  = parseInt(parts[1] || 0);
+    var rowD  = parseInt(parts[2] || 0);
+    var pasa  = (rowY === year && rowM === month && rowD >= startDay && rowD <= endDay);
+    Logger.log(
+      'Fila ' + (i + 1) + ': ' +
+      'raw="' + String(r[1]) + '" ' +
+      'tipo=' + typeof r[1] + ' ' +
+      'esDate=' + (r[1] instanceof Date) + ' ' +
+      '→ parsed="' + fecha + '" ' +
+      '(Y=' + rowY + ' M=' + rowM + ' D=' + rowD + ') ' +
+      'PASA_FILTRO=' + pasa + ' | ' +
+      'empleado="' + String(r[2]) + '"'
+    );
+  }
 }
 
 // ── Función de prueba (ejecutar manualmente desde el editor) ─────────────────
@@ -230,7 +283,9 @@ function testInsert() {
     '8h 00m',
     5,
     0,
-    'Prueba manual desde editor'
+    'Prueba manual desde editor',
+    '',
+    ''
   ]);
   Logger.log('Fila de prueba insertada correctamente.');
 }
